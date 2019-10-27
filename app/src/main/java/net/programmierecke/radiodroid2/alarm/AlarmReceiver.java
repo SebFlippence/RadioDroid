@@ -1,5 +1,8 @@
 package net.programmierecke.radiodroid2.alarm;
 
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -7,6 +10,8 @@ import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.media.AudioManager;
+import android.media.AudioAttributes;
+import android.media.RingtoneManager;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.os.AsyncTask;
@@ -18,6 +23,7 @@ import android.os.RemoteException;
 import android.util.Log;
 import android.widget.Toast;
 
+import androidx.core.app.NotificationCompat;
 import androidx.preference.PreferenceManager;
 
 import net.programmierecke.radiodroid2.BuildConfig;
@@ -38,6 +44,7 @@ public class AlarmReceiver extends BroadcastReceiver {
     PowerManager.WakeLock wakeLock;
     private WifiManager.WifiLock wifiLock;
     private final String TAG = "RECV";
+    static String BACKUP_NOTIFICATION_NAME = "backup-alarm";
 
     private AudioManager audioManager;
 
@@ -200,6 +207,7 @@ public class AlarmReceiver extends BroadcastReceiver {
                 } else {
                     Toast toast = Toast.makeText(context, context.getResources().getText(R.string.error_station_load), Toast.LENGTH_SHORT);
                     toast.show();
+                    PlaySystemAlarm(context);
                     if (wakeLock != null) {
                         wakeLock.release();
                         wakeLock = null;
@@ -273,4 +281,47 @@ public class AlarmReceiver extends BroadcastReceiver {
        };
        handler.post(runnable);
    }
+    private void PlaySystemAlarm(Context context) {
+        if(BuildConfig.DEBUG) { Log.d(TAG, "Starting system alarm"); }
+
+        graduallyIncreaseAlarmVolume(context);
+
+        //Define sound URI
+        Uri soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
+
+        // Create the NotificationChannel, but only on API 26+ because
+        // the NotificationChannel class is new and not in the support library
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            CharSequence name = context.getString(R.string.alarm_backup);
+            String description = context.getString(R.string.alarm_back_desc);
+            int importance = NotificationManager.IMPORTANCE_HIGH;
+            NotificationChannel channel = new NotificationChannel(BACKUP_NOTIFICATION_NAME, name, importance);
+            channel.setDescription(description);
+
+            AudioAttributes audioAttributes = new AudioAttributes.Builder()
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .build();
+            channel.setSound(soundUri, audioAttributes);
+
+            // Register the channel with the system; you can't change the importance
+            // or other notification behaviors after this
+            NotificationManager notificationManager = context.getSystemService(NotificationManager.class);
+            notificationManager.createNotificationChannel(channel);
+        }
+
+        //Define Notification Manager
+        NotificationManager notificationManager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+
+        NotificationCompat.Builder mBuilder = new NotificationCompat.Builder(context, BACKUP_NOTIFICATION_NAME)
+                .setSmallIcon(R.drawable.ic_access_alarms_black_24dp)
+                .setContentTitle(context.getString(R.string.alarm))
+                .setContentText(context.getString(R.string.alarm_fallback_info))
+                .setDefaults(Notification.DEFAULT_SOUND)
+                .setSound(soundUri)
+                .setAutoCancel(true);
+
+        //Display notification
+        notificationManager.notify(1, mBuilder.build());
+    }
 }
