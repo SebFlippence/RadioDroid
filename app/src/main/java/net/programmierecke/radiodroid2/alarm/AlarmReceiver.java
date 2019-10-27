@@ -41,18 +41,31 @@ public class AlarmReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         if(BuildConfig.DEBUG) { Log.d(TAG,"received broadcast"); }
         aquireLocks(context);
-        
-        Toast toast = Toast.makeText(context, context.getResources().getText(R.string.alert_alarm_working), Toast.LENGTH_SHORT);
-        toast.show();
 
         alarmId = intent.getIntExtra("id",-1);
         if(BuildConfig.DEBUG) { Log.d(TAG,"alarm id:"+alarmId); }
 
         RadioDroidApp radioDroidApp = (RadioDroidApp)context.getApplicationContext();
         RadioAlarmManager ram = radioDroidApp.getAlarmManager();
-        station = ram.getStation(alarmId);
         ram.resetAllAlarms();
 
+        SharedPreferences sharedPref = PreferenceManager.getDefaultSharedPreferences(context);
+        Boolean isThisAlarmSkipped = sharedPref.getBoolean("alarm_skipped_"+alarmId, false);
+        if (isThisAlarmSkipped) {
+            if(BuildConfig.DEBUG) { Log.d(TAG,"This alarm is skipped, not going to trigger"); }
+
+            SharedPreferences.Editor editor = sharedPref.edit();
+            editor.putBoolean("alarm_skipped_"+alarmId, false);
+            editor.commit();
+
+            releaseLocks();
+            return;
+        }
+        
+        Toast toast = Toast.makeText(context, context.getResources().getText(R.string.alert_alarm_working), Toast.LENGTH_SHORT);
+        toast.show();
+
+        station = ram.getStation(alarmId);
         if (station != null && alarmId >= 0) {
             if(BuildConfig.DEBUG) { Log.d(TAG,"radio id:"+alarmId); }
             Play(context, station.StationUuid);

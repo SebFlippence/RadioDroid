@@ -1,6 +1,7 @@
 package net.programmierecke.radiodroid2.alarm;
 
 import android.app.AlarmManager;
+import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
@@ -237,6 +238,18 @@ public class RadioAlarmManager {
                 if(BuildConfig.DEBUG) { Log.d("ALARM","START set"); }
                 alarmMgr.set(AlarmManager.RTC_WAKEUP,calendar.getTimeInMillis(),alarmIntent);
             }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+                if(BuildConfig.DEBUG) { Log.d("ALARM","Setup upcoming alarm notification"); }
+                int oneHourBeforeAlarm = alarm.hour == 0 ? 23 : alarm.hour - 1;
+                calendar.set(Calendar.HOUR_OF_DAY, oneHourBeforeAlarm);
+
+                Intent upcomingAlarmReceiver = new Intent(context, UpcomingAlarmReceiver.class);
+                upcomingAlarmReceiver.putExtra("id", alarmId);
+                PendingIntent upcomingAlarmIntent = PendingIntent.getBroadcast(context, alarmId, upcomingAlarmReceiver, PendingIntent.FLAG_UPDATE_CURRENT);
+
+                alarmMgr.setWindow(AlarmManager.RTC_WAKEUP, calendar.getTimeInMillis(), 3600000, upcomingAlarmIntent);
+            }
         }
     }
 
@@ -248,6 +261,21 @@ public class RadioAlarmManager {
             PendingIntent alarmIntent = PendingIntent.getBroadcast(context, alarmId, intent, 0);
             AlarmManager alarmMgr = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
             alarmMgr.cancel(alarmIntent);
+
+            SharedPreferences sharedPref = PreferenceManager.getDefaultSharedPreferences(context);
+            SharedPreferences.Editor editor = sharedPref.edit();
+            editor.putBoolean("alarm_skipped_"+alarmId, false);
+            editor.commit();
+
+            NotificationManager notificationManager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+            notificationManager.cancel(UpcomingAlarmReceiver.NOTIFICATION_ID);
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+                if(BuildConfig.DEBUG) { Log.d("ALARM","Stop upcoming alarm notification"); }
+                Intent upcomingAlarmReceiver = new Intent(context, UpcomingAlarmReceiver.class);
+                PendingIntent upcomingAlarmIntent = PendingIntent.getBroadcast(context, alarmId, upcomingAlarmReceiver, 0);
+                alarmMgr.cancel(upcomingAlarmIntent);
+            }
         }
     }
 
@@ -303,6 +331,7 @@ public class RadioAlarmManager {
         for(DataRadioStationAlarm alarm: list){
             if (alarm.enabled){
                 if(BuildConfig.DEBUG) { Log.d("ALARM","started alarm with id:"+alarm.id); }
+                stop(alarm.id);
                 start(alarm.id);
             }
         }
