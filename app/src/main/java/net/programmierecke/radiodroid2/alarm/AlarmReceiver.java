@@ -6,10 +6,12 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
+import android.media.AudioManager;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.os.AsyncTask;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
 import android.os.PowerManager;
 import android.os.RemoteException;
@@ -36,6 +38,16 @@ public class AlarmReceiver extends BroadcastReceiver {
     PowerManager.WakeLock wakeLock;
     private WifiManager.WifiLock wifiLock;
     private final String TAG = "RECV";
+
+    private AudioManager audioManager;
+
+    private long triggerMillis;
+    private long slowWakeMillis;
+
+    private int currentVolume;
+    private int minVolume;
+    private int originalVolume;
+    private int volumeRange;
 
     @Override
     public void onReceive(Context context, Intent intent) {
@@ -153,6 +165,8 @@ public class AlarmReceiver extends BroadcastReceiver {
             @Override
             protected void onPostExecute(String result) {
                 if (result != null) {
+                    graduallyIncreaseAlarmVolume(context);
+
                     url = result;
 
                     SharedPreferences sharedPref = PreferenceManager.getDefaultSharedPreferences(context);
@@ -199,4 +213,64 @@ public class AlarmReceiver extends BroadcastReceiver {
             }
         }.execute();
     }
+
+   private void graduallyIncreaseAlarmVolume(final Context context) {
+       if(BuildConfig.DEBUG) { Log.d(TAG, "graduallyIncreaseVolume starting"); }
+//        slowWakeMillis = PreferenceData.SLOW_WAKE_UP_TIME.getValue(this);
+       slowWakeMillis = 90000;
+
+       audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+       originalVolume = audioManager.getStreamVolume(AudioManager.STREAM_ALARM);
+
+       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+           minVolume = audioManager.getStreamMinVolume(AudioManager.STREAM_ALARM);
+       } else {
+           minVolume = 0;
+       }
+
+       volumeRange = originalVolume - minVolume;
+       currentVolume = minVolume;
+
+       audioManager.setStreamVolume(AudioManager.STREAM_ALARM, minVolume, 0);
+
+       triggerMillis = System.currentTimeMillis();
+       Handler handler = new Handler();
+       Runnable runnable = new Runnable() {
+           @Override
+           public void run() {
+               if(BuildConfig.DEBUG) { Log.d(TAG, "Increasing volume"); }
+
+               long elapsedMillis = System.currentTimeMillis() - triggerMillis;
+
+               boolean isPlaying;
+               try {
+                   isPlaying = itsPlayerService.isPlaying();
+               } catch (Exception e) {
+                   if(BuildConfig.DEBUG) { Log.d(TAG, "Couldn't get isPlaying"); }
+                   isPlaying = false;
+               }
+
+               if (elapsedMillis > 30000 && !isPlaying) {
+                   if(BuildConfig.DEBUG) { Log.d(TAG, "No longer playing resetting volume to original"); }
+                   audioManager.setStreamVolume(audioManager.STREAM_ALARM, originalVolume, 0);
+                   handler.removeCallbacks(this);
+                   return;
+               }
+
+               float slowWakeProgress = (float) elapsedMillis / slowWakeMillis;
+
+               if (currentVolume < originalVolume) {
+                   int newVolume = minVolume + (int) Math.min(originalVolume, slowWakeProgress * volumeRange);
+                   if (newVolume != currentVolume) {
+                       audioManager.setStreamVolume(audioManager.STREAM_ALARM, newVolume, 0);
+                       currentVolume = newVolume;
+                   }
+                   handler.postDelayed(this, 1000);
+               } else {
+                   handler.removeCallbacks(this);
+               }
+           }
+       };
+       handler.post(runnable);
+   }
 }
