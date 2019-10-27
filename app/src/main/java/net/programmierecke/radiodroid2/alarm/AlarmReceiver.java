@@ -185,7 +185,7 @@ public class AlarmReceiver extends BroadcastReceiver {
             @Override
             protected void onPostExecute(String result) {
                 if (result != null) {
-                    graduallyIncreaseAlarmVolume(context);
+                    graduallyIncreaseAlarmVolume(context, true);
 
                     url = result;
 
@@ -235,7 +235,7 @@ public class AlarmReceiver extends BroadcastReceiver {
         }.execute();
     }
 
-   private void graduallyIncreaseAlarmVolume(final Context context) {
+   private void graduallyIncreaseAlarmVolume(final Context context, boolean checkIfPlaying) {
        if(BuildConfig.DEBUG) { Log.d(TAG, "graduallyIncreaseVolume starting"); }
 //        slowWakeMillis = PreferenceData.SLOW_WAKE_UP_TIME.getValue(this);
        slowWakeMillis = 90000;
@@ -263,19 +263,25 @@ public class AlarmReceiver extends BroadcastReceiver {
 
                long elapsedMillis = System.currentTimeMillis() - triggerMillis;
 
-               boolean isPlaying;
-               try {
-                   isPlaying = itsPlayerService.isPlaying();
-               } catch (Exception e) {
-                   if(BuildConfig.DEBUG) { Log.d(TAG, "Couldn't get isPlaying"); }
-                   isPlaying = false;
-               }
+               if (checkIfPlaying) {
+                   boolean isPlaying;
+                   try {
+                       isPlaying = itsPlayerService.isPlaying();
+                   } catch (Exception e) {
+                       if (BuildConfig.DEBUG) {
+                           Log.d(TAG, "Couldn't get isPlaying");
+                       }
+                       isPlaying = false;
+                   }
 
-               if (elapsedMillis > 30000 && !isPlaying) {
-                   if(BuildConfig.DEBUG) { Log.d(TAG, "No longer playing resetting volume to original"); }
-                   audioManager.setStreamVolume(audioManager.STREAM_ALARM, originalVolume, 0);
-                   handler.removeCallbacks(this);
-                   return;
+                   if (elapsedMillis > 30000 && !isPlaying) {
+                       if (BuildConfig.DEBUG) {
+                           Log.d(TAG, "No longer playing resetting volume to original");
+                       }
+                       audioManager.setStreamVolume(audioManager.STREAM_ALARM, originalVolume, 0);
+                       handler.removeCallbacks(this);
+                       return;
+                   }
                }
 
                float slowWakeProgress = (float) elapsedMillis / slowWakeMillis;
@@ -297,7 +303,7 @@ public class AlarmReceiver extends BroadcastReceiver {
     private void PlaySystemAlarm(Context context) {
         if(BuildConfig.DEBUG) { Log.d(TAG, "Starting system alarm"); }
 
-        graduallyIncreaseAlarmVolume(context);
+        graduallyIncreaseAlarmVolume(context, false);
 
         //Define sound URI
         Uri soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
