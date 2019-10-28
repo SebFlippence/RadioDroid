@@ -1,5 +1,6 @@
 package net.programmierecke.radiodroid2.alarm;
 
+import android.app.AlarmManager;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -15,7 +16,7 @@ import net.programmierecke.radiodroid2.BuildConfig;
 import net.programmierecke.radiodroid2.R;
 
 public class UpcomingAlarmReceiver extends BroadcastReceiver {
-    static int NOTIFICATION_ID = 0;
+    static int NOTIFICATION_ID = 1;
     static String NOTIFICATION_NAME = "upcoming-alarm";
 
     @Override
