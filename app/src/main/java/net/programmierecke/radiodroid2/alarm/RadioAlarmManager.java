@@ -267,8 +267,12 @@ public class RadioAlarmManager {
             editor.putBoolean("alarm_skipped_"+alarmId, false);
             editor.commit();
 
-            NotificationManager notificationManager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
-            notificationManager.cancel(UpcomingAlarmReceiver.NOTIFICATION_ID);
+            try {
+                NotificationManager notificationManager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+                notificationManager.cancel(UpcomingAlarmReceiver.NOTIFICATION_ID);
+            } catch (Exception e) {
+                if(BuildConfig.DEBUG) { Log.d("ALARM","No notifications to cancel"); }
+            }
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
                 if(BuildConfig.DEBUG) { Log.d("ALARM","Stop upcoming alarm notification"); }
@@ -331,7 +335,6 @@ public class RadioAlarmManager {
         for(DataRadioStationAlarm alarm: list){
             if (alarm.enabled){
                 if(BuildConfig.DEBUG) { Log.d("ALARM","started alarm with id:"+alarm.id); }
-                stop(alarm.id);
                 start(alarm.id);
             }
         }
