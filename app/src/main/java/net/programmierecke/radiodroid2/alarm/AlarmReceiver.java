@@ -56,6 +56,8 @@ public class AlarmReceiver extends BroadcastReceiver {
     private int originalVolume;
     private int volumeRange;
 
+    private boolean playError = false;
+
     @Override
     public void onReceive(Context context, Intent intent) {
         if(BuildConfig.DEBUG) { Log.d(TAG,"received broadcast"); }
@@ -138,6 +140,7 @@ public class AlarmReceiver extends BroadcastReceiver {
     private ServiceConnection svcConn = new ServiceConnection() {
         public void onServiceConnected(ComponentName className, IBinder binder) {
             if(BuildConfig.DEBUG) { Log.d(TAG, "Service came online"); }
+            playError = false;
             itsPlayerService = IPlayerService.Stub.asInterface(binder);
             try {
                 station.playableUrl = url;
@@ -147,6 +150,7 @@ public class AlarmReceiver extends BroadcastReceiver {
                 itsPlayerService.addTimer(timeout*60);
             } catch (RemoteException e) {
                 Log.e(TAG,"play error:"+e);
+                playError = true;
             }
 
             releaseLocks();
@@ -155,6 +159,7 @@ public class AlarmReceiver extends BroadcastReceiver {
         public void onServiceDisconnected(ComponentName className) {
             if(BuildConfig.DEBUG) { Log.d(TAG, "Service offline"); }
             itsPlayerService = null;
+            playError = true;
         }
     };
 
@@ -185,7 +190,6 @@ public class AlarmReceiver extends BroadcastReceiver {
             @Override
             protected void onPostExecute(String result) {
                 if (result != null) {
-                    graduallyIncreaseAlarmVolume(context, true);
 
                     url = result;
 
@@ -213,9 +217,15 @@ public class AlarmReceiver extends BroadcastReceiver {
                             wifiLock = null;
                         }
                     }else {
-                        Intent anIntent = new Intent(context, PlayerService.class);
-                        context.getApplicationContext().bindService(anIntent, svcConn, context.BIND_AUTO_CREATE);
-                        context.getApplicationContext().startService(anIntent);
+                        try {
+                            Intent anIntent = new Intent(context, PlayerService.class);
+                            context.getApplicationContext().bindService(anIntent, svcConn, context.BIND_AUTO_CREATE);
+                            graduallyIncreaseAlarmVolume(context, true);
+                            context.getApplicationContext().startService(anIntent);
+                        } catch (Exception e) {
+                            Log.e(TAG,"Error starting intent "+e);
+                            PlaySystemAlarm(context);
+                        }
                     }
                 } else {
                     Toast toast = Toast.makeText(context, context.getResources().getText(R.string.error_station_load), Toast.LENGTH_SHORT);
@@ -274,14 +284,19 @@ public class AlarmReceiver extends BroadcastReceiver {
                        isPlaying = false;
                    }
 
-                   if (elapsedMillis > 30000 && !isPlaying) {
-                       if (BuildConfig.DEBUG) {
-                           Log.d(TAG, "No longer playing resetting volume to original");
+                   if (elapsedMillis > 30000) {
+                       if (playError) {
+                           playError = false;
+                           PlaySystemAlarm(context);
+                       } else if (!isPlaying) {
+                           if (BuildConfig.DEBUG) {
+                               Log.d(TAG, "No longer playing resetting volume to original");
+                           }
+                           audioManager.setStreamVolume(audioManager.STREAM_ALARM, originalVolume, 0);
+                           handler.removeCallbacks(this);
+                           return;
                        }
-                       audioManager.setStreamVolume(audioManager.STREAM_ALARM, originalVolume, 0);
-                       handler.removeCallbacks(this);
-                       return;
-                   }
+                    }
                }
 
                float slowWakeProgress = (float) elapsedMillis / slowWakeMillis;
