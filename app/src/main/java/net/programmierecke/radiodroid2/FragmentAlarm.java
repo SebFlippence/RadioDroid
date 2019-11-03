@@ -1,6 +1,8 @@
 package net.programmierecke.radiodroid2;
 
 import android.app.TimePickerDialog;
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import androidx.fragment.app.Fragment;
 import android.view.LayoutInflater;
@@ -9,10 +11,16 @@ import android.view.ViewGroup;
 import android.widget.AdapterView;
 import android.widget.ListView;
 import android.widget.TimePicker;
+import android.widget.Toast;
 
 import net.programmierecke.radiodroid2.adapters.ItemAdapterRadioAlarm;
 import net.programmierecke.radiodroid2.data.DataRadioStationAlarm;
 import net.programmierecke.radiodroid2.interfaces.IChanged;
+import androidx.fragment.app.Fragment;
+import androidx.preference.PreferenceManager;
+
+import net.programmierecke.radiodroid2.R;
+import net.programmierecke.radiodroid2.RadioDroidApp;
 
 public class FragmentAlarm extends Fragment implements TimePickerDialog.OnTimeSetListener, IChanged {
     private RadioAlarmManager ram;
@@ -40,6 +48,15 @@ public class FragmentAlarm extends Fragment implements TimePickerDialog.OnTimeSe
                 }
             }
         });
+        lvAlarms.setOnItemLongClickListener(new AdapterView.OnItemLongClickListener() {
+            public boolean onItemLongClick(AdapterView<?> parent, View view, int position, long id) {
+                Object alarm = parent.getItemAtPosition(position);
+                if (alarm instanceof DataRadioStationAlarm) {
+                    LongClickOnItem((DataRadioStationAlarm) alarm);
+                }
+                return true;
+            }
+        });
 
         RefreshListAndView();
 
@@ -60,6 +77,20 @@ public class FragmentAlarm extends Fragment implements TimePickerDialog.OnTimeSe
         TimePickerFragment newFragment = new TimePickerFragment();
         newFragment.setCallback(this);
         newFragment.show(getActivity().getSupportFragmentManager(), "timePicker");
+    }
+
+    private void LongClickOnItem(DataRadioStationAlarm alarm) {
+        Context context = getActivity().getApplicationContext();
+
+        SharedPreferences sharedPref = PreferenceManager.getDefaultSharedPreferences(context);
+        boolean isNextAlarmSkipped = !sharedPref.getBoolean("alarm_skipped_"+alarm.id, false);
+
+        SharedPreferences.Editor editor = sharedPref.edit();
+        editor.putBoolean("alarm_skipped_"+alarm.id, isNextAlarmSkipped);
+        editor.commit();
+
+        Toast toast = Toast.makeText(context, isNextAlarmSkipped ? getString(R.string.alarm_next_skipped) : getString(R.string.alarm_next_unskipped), Toast.LENGTH_SHORT);
+        toast.show();
     }
 
     @Override

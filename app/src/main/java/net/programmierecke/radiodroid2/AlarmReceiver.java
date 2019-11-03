@@ -1,15 +1,22 @@
 package net.programmierecke.radiodroid2;
 
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
+import android.media.AudioManager;
+import android.media.AudioAttributes;
+import android.media.RingtoneManager;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.os.AsyncTask;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
 import android.os.PowerManager;
 import android.os.RemoteException;
@@ -18,6 +25,7 @@ import android.util.Log;
 import android.widget.Toast;
 
 import net.programmierecke.radiodroid2.data.DataRadioStation;
+import androidx.core.app.NotificationCompat;
 
 import okhttp3.OkHttpClient;
 
@@ -29,14 +37,24 @@ public class AlarmReceiver extends BroadcastReceiver {
     PowerManager.WakeLock wakeLock;
     private WifiManager.WifiLock wifiLock;
     private final String TAG = "RECV";
+    static String BACKUP_NOTIFICATION_NAME = "backup-alarm";
+
+    private AudioManager audioManager;
+
+    private long triggerMillis;
+    private long slowWakeMillis;
+
+    private int currentVolume;
+    private int minVolume;
+    private int originalVolume;
+    private int volumeRange;
+
+    private boolean playError = false;
 
     @Override
     public void onReceive(Context context, Intent intent) {
         if(BuildConfig.DEBUG) { Log.d(TAG,"received broadcast"); }
         aquireLocks(context);
-        
-        Toast toast = Toast.makeText(context, context.getResources().getText(R.string.alert_alarm_working), Toast.LENGTH_SHORT);
-        toast.show();
 
         alarmId = intent.getIntExtra("id",-1);
         if(BuildConfig.DEBUG) { Log.d(TAG,"alarm id:"+alarmId); }
@@ -45,6 +63,23 @@ public class AlarmReceiver extends BroadcastReceiver {
         station = ram.getStation(alarmId);
         ram.resetAllAlarms();
 
+        SharedPreferences sharedPref = PreferenceManager.getDefaultSharedPreferences(context);
+        Boolean isThisAlarmSkipped = sharedPref.getBoolean("alarm_skipped_"+alarmId, false);
+        if (isThisAlarmSkipped) {
+            if(BuildConfig.DEBUG) { Log.d(TAG,"This alarm is skipped, not going to trigger"); }
+
+            SharedPreferences.Editor editor = sharedPref.edit();
+            editor.putBoolean("alarm_skipped_"+alarmId, false);
+            editor.commit();
+
+            releaseLocks();
+            return;
+        }
+        
+        Toast toast = Toast.makeText(context, context.getResources().getText(R.string.alert_alarm_working), Toast.LENGTH_SHORT);
+        toast.show();
+
+        station = ram.getStation(alarmId);
         if (station != null && alarmId >= 0) {
             if(BuildConfig.DEBUG) { Log.d(TAG,"radio id:"+alarmId); }
             Play(context, station.StationUuid);
@@ -98,6 +133,7 @@ public class AlarmReceiver extends BroadcastReceiver {
     private ServiceConnection svcConn = new ServiceConnection() {
         public void onServiceConnected(ComponentName className, IBinder binder) {
             if(BuildConfig.DEBUG) { Log.d(TAG, "Service came online"); }
+            playError = false;
             itsPlayerService = IPlayerService.Stub.asInterface(binder);
             try {
                 itsPlayerService.SaveInfo(url, station.Name, station.StationUuid, station.IconUrl);
@@ -106,6 +142,7 @@ public class AlarmReceiver extends BroadcastReceiver {
                 itsPlayerService.addTimer(timeout*60);
             } catch (RemoteException e) {
                 Log.e(TAG,"play error:"+e);
+                playError = true;
             }
 
             releaseLocks();
@@ -114,6 +151,7 @@ public class AlarmReceiver extends BroadcastReceiver {
         public void onServiceDisconnected(ComponentName className) {
             if(BuildConfig.DEBUG) { Log.d(TAG, "Service offline"); }
             itsPlayerService = null;
+            playError = true;
         }
     };
 
@@ -170,13 +208,20 @@ public class AlarmReceiver extends BroadcastReceiver {
                             wifiLock = null;
                         }
                     }else {
-                        Intent anIntent = new Intent(context, PlayerService.class);
-                        context.getApplicationContext().bindService(anIntent, svcConn, context.BIND_AUTO_CREATE);
-                        context.getApplicationContext().startService(anIntent);
+                        try {
+                            Intent anIntent = new Intent(context, PlayerService.class);
+                            context.getApplicationContext().bindService(anIntent, svcConn, context.BIND_AUTO_CREATE);
+                            graduallyIncreaseAlarmVolume(context, true);
+                            context.getApplicationContext().startService(anIntent);
+                        } catch (Exception e) {
+                            Log.e(TAG,"Error starting intent "+e);
+                            PlaySystemAlarm(context);
+                        }
                     }
                 } else {
                     Toast toast = Toast.makeText(context, context.getResources().getText(R.string.error_station_load), Toast.LENGTH_SHORT);
                     toast.show();
+                    PlaySystemAlarm(context);
                     if (wakeLock != null) {
                         wakeLock.release();
                         wakeLock = null;
@@ -189,5 +234,119 @@ public class AlarmReceiver extends BroadcastReceiver {
                 super.onPostExecute(result);
             }
         }.execute();
+    }
+
+   private void graduallyIncreaseAlarmVolume(final Context context, boolean checkIfPlaying) {
+       if(BuildConfig.DEBUG) { Log.d(TAG, "graduallyIncreaseVolume starting"); }
+//        slowWakeMillis = PreferenceData.SLOW_WAKE_UP_TIME.getValue(this);
+       slowWakeMillis = 90000;
+
+       audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+       originalVolume = audioManager.getStreamVolume(AudioManager.STREAM_ALARM);
+
+       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+           minVolume = audioManager.getStreamMinVolume(AudioManager.STREAM_ALARM);
+       } else {
+           minVolume = 0;
+       }
+
+       volumeRange = originalVolume - minVolume;
+       currentVolume = minVolume;
+
+       audioManager.setStreamVolume(AudioManager.STREAM_ALARM, minVolume, 0);
+
+       triggerMillis = System.currentTimeMillis();
+       Handler handler = new Handler();
+       Runnable runnable = new Runnable() {
+           @Override
+           public void run() {
+               if(BuildConfig.DEBUG) { Log.d(TAG, "Increasing volume"); }
+
+               long elapsedMillis = System.currentTimeMillis() - triggerMillis;
+
+               if (checkIfPlaying) {
+                   boolean isPlaying;
+                   try {
+                       isPlaying = itsPlayerService.isPlaying();
+                   } catch (Exception e) {
+                       if (BuildConfig.DEBUG) {
+                           Log.d(TAG, "Couldn't get isPlaying");
+                       }
+                       isPlaying = false;
+                   }
+
+                   if (elapsedMillis > 30000) {
+                       if (playError) {
+                           playError = false;
+                           PlaySystemAlarm(context);
+                       } else if (!isPlaying) {
+                           if (BuildConfig.DEBUG) {
+                               Log.d(TAG, "No longer playing resetting volume to original");
+                           }
+                           audioManager.setStreamVolume(audioManager.STREAM_ALARM, originalVolume, 0);
+                           handler.removeCallbacks(this);
+                           return;
+                       }
+                    }
+               }
+
+               float slowWakeProgress = (float) elapsedMillis / slowWakeMillis;
+
+               if (currentVolume < originalVolume) {
+                   int newVolume = minVolume + (int) Math.min(originalVolume, slowWakeProgress * volumeRange);
+                   if (newVolume != currentVolume) {
+                       audioManager.setStreamVolume(audioManager.STREAM_ALARM, newVolume, 0);
+                       currentVolume = newVolume;
+                   }
+                   handler.postDelayed(this, 1000);
+               } else {
+                   handler.removeCallbacks(this);
+               }
+           }
+       };
+       handler.post(runnable);
+   }
+    private void PlaySystemAlarm(Context context) {
+        if(BuildConfig.DEBUG) { Log.d(TAG, "Starting system alarm"); }
+
+        graduallyIncreaseAlarmVolume(context, false);
+
+        //Define sound URI
+        Uri soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
+
+        // Create the NotificationChannel, but only on API 26+ because
+        // the NotificationChannel class is new and not in the support library
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            CharSequence name = context.getString(R.string.alarm_backup);
+            String description = context.getString(R.string.alarm_back_desc);
+            int importance = NotificationManager.IMPORTANCE_HIGH;
+            NotificationChannel channel = new NotificationChannel(BACKUP_NOTIFICATION_NAME, name, importance);
+            channel.setDescription(description);
+
+            AudioAttributes audioAttributes = new AudioAttributes.Builder()
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .build();
+            channel.setSound(soundUri, audioAttributes);
+
+            // Register the channel with the system; you can't change the importance
+            // or other notification behaviors after this
+            NotificationManager notificationManager = context.getSystemService(NotificationManager.class);
+            notificationManager.createNotificationChannel(channel);
+        }
+
+        //Define Notification Manager
+        NotificationManager notificationManager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+
+        NotificationCompat.Builder mBuilder = new NotificationCompat.Builder(context, BACKUP_NOTIFICATION_NAME)
+                .setSmallIcon(R.drawable.ic_access_alarms_black_24dp)
+                .setContentTitle(context.getString(R.string.alarm))
+                .setContentText(context.getString(R.string.alarm_fallback_info))
+                .setDefaults(Notification.DEFAULT_SOUND)
+                .setSound(soundUri)
+                .setAutoCancel(true);
+
+        //Display notification
+        notificationManager.notify(1, mBuilder.build());
     }
 }

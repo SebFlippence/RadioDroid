@@ -71,6 +71,22 @@
             </intent-filter>
         </receiver>
 
+        <receiver
+            android:name="net.programmierecke.radiodroid2.UpcomingAlarmReceiver"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name=".UpcomingAlarmReceiver" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name="net.programmierecke.radiodroid2.SkipUpcomingAlarmReceiver"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name=".SkipUpcomingAlarmReceiver" />
+            </intent-filter>
+        </receiver>
+
         <receiver android:name="androidx.media.session.MediaButtonReceiver">
             <intent-filter>
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
