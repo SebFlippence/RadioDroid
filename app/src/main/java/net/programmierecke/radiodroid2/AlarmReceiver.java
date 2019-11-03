@@ -236,76 +236,79 @@ public class AlarmReceiver extends BroadcastReceiver {
         }.execute();
     }
 
-   private void graduallyIncreaseAlarmVolume(final Context context, boolean checkIfPlaying) {
-       if(BuildConfig.DEBUG) { Log.d(TAG, "graduallyIncreaseVolume starting"); }
-//        slowWakeMillis = PreferenceData.SLOW_WAKE_UP_TIME.getValue(this);
-       slowWakeMillis = 90000;
+    private void graduallyIncreaseAlarmVolume(final Context context, boolean checkIfPlaying) {
+        String logTag = TAG + " AlarmVolume";
 
-       audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
-       originalVolume = audioManager.getStreamVolume(AudioManager.STREAM_ALARM);
+        SharedPreferences sharedPref = PreferenceManager.getDefaultSharedPreferences(context);
+        slowWakeMillis = Integer.parseInt(sharedPref.getString("gradually_increase_volume", "0"));
 
-       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-           minVolume = audioManager.getStreamMinVolume(AudioManager.STREAM_ALARM);
-       } else {
-           minVolume = 0;
-       }
+        audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+        originalVolume = audioManager.getStreamVolume(AudioManager.STREAM_ALARM);
 
-       volumeRange = originalVolume - minVolume;
-       currentVolume = minVolume;
+        if (slowWakeMillis == 0 || originalVolume == 0) {
+            if (BuildConfig.DEBUG) { Log.d(logTag, "Gradual alarm volume disabled"); }
+            return;
+        }
 
-       audioManager.setStreamVolume(AudioManager.STREAM_ALARM, minVolume, 0);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            minVolume = audioManager.getStreamMinVolume(AudioManager.STREAM_ALARM);
+        } else {
+            minVolume = 0;
+        }
 
-       triggerMillis = System.currentTimeMillis();
-       Handler handler = new Handler();
-       Runnable runnable = new Runnable() {
-           @Override
-           public void run() {
-               if(BuildConfig.DEBUG) { Log.d(TAG, "Increasing volume"); }
+        volumeRange = originalVolume - minVolume;
+        currentVolume = minVolume;
 
-               long elapsedMillis = System.currentTimeMillis() - triggerMillis;
+        audioManager.setStreamVolume(AudioManager.STREAM_ALARM, minVolume, 0);
 
-               if (checkIfPlaying) {
-                   boolean isPlaying;
-                   try {
-                       isPlaying = itsPlayerService.isPlaying();
-                   } catch (Exception e) {
-                       if (BuildConfig.DEBUG) {
-                           Log.d(TAG, "Couldn't get isPlaying");
-                       }
-                       isPlaying = false;
-                   }
+        triggerMillis = System.currentTimeMillis();
+        Handler handler = new Handler();
+        Runnable runnable = new Runnable() {
+            @Override
+            public void run() {
+                if(BuildConfig.DEBUG) { Log.d(logTag, "Increase volume loop"); }
 
-                   if (elapsedMillis > 30000) {
-                       if (playError) {
-                           playError = false;
-                           PlaySystemAlarm(context);
-                       } else if (!isPlaying) {
-                           if (BuildConfig.DEBUG) {
-                               Log.d(TAG, "No longer playing resetting volume to original");
-                           }
-                           audioManager.setStreamVolume(audioManager.STREAM_ALARM, originalVolume, 0);
-                           handler.removeCallbacks(this);
-                           return;
-                       }
+                long elapsedMillis = System.currentTimeMillis() - triggerMillis;
+
+                if (checkIfPlaying) {
+                    boolean isPlaying;
+                    try {
+                        isPlaying = itsPlayerService.isPlaying();
+                    } catch (Exception e) {
+                        if (BuildConfig.DEBUG) { Log.d(logTag, "Couldn't get isPlaying"); }
+                        isPlaying = false;
                     }
-               }
 
-               float slowWakeProgress = (float) elapsedMillis / slowWakeMillis;
+                    if (elapsedMillis > 30000) {
+                        if (playError) {
+                            playError = false;
+                            PlaySystemAlarm(context);
+                        } else if (!isPlaying) {
+                            if (BuildConfig.DEBUG) { Log.d(logTag, "No longer playing resetting volume to original"); }
+                            audioManager.setStreamVolume(AudioManager.STREAM_ALARM, originalVolume, 0);
+                            handler.removeCallbacks(this);
+                            return;
+                        }
+                    }
+                }
 
-               if (currentVolume < originalVolume) {
-                   int newVolume = minVolume + (int) Math.min(originalVolume, slowWakeProgress * volumeRange);
-                   if (newVolume != currentVolume) {
-                       audioManager.setStreamVolume(audioManager.STREAM_ALARM, newVolume, 0);
-                       currentVolume = newVolume;
-                   }
-                   handler.postDelayed(this, 1000);
-               } else {
-                   handler.removeCallbacks(this);
-               }
-           }
-       };
-       handler.post(runnable);
-   }
+                float slowWakeProgress = (float) elapsedMillis / slowWakeMillis;
+
+                if (currentVolume < originalVolume) {
+                    int newVolume = minVolume + (int) Math.min(originalVolume, slowWakeProgress * volumeRange);
+                    if (newVolume != currentVolume) {
+                        audioManager.setStreamVolume(AudioManager.STREAM_ALARM, newVolume, 0);
+                        currentVolume = newVolume;
+                    }
+                    handler.postDelayed(this, 1000);
+                } else {
+                    handler.removeCallbacks(this);
+                }
+            }
+        };
+        handler.post(runnable);
+    }
+
     private void PlaySystemAlarm(Context context) {
         if(BuildConfig.DEBUG) { Log.d(TAG, "Starting system alarm"); }
 
