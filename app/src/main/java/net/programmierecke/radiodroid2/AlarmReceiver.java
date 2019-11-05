@@ -41,14 +41,6 @@ public class AlarmReceiver extends BroadcastReceiver {
 
     private AudioManager audioManager;
 
-    private long triggerMillis;
-    private long slowWakeMillis;
-
-    private int currentVolume;
-    private int minVolume;
-    private int originalVolume;
-    private int volumeRange;
-
     private boolean playError = false;
 
     @Override
@@ -243,27 +235,28 @@ public class AlarmReceiver extends BroadcastReceiver {
         int slowWakeMillis = sharedPref.getInt("gradually_increase_volume", 0) * 10000;
 
         audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
-        originalVolume = audioManager.getStreamVolume(AudioManager.STREAM_ALARM);
+        int originalVolume = audioManager.getStreamVolume(AudioManager.STREAM_ALARM);
 
         if (slowWakeMillis == 0 || originalVolume == 0) {
             if (BuildConfig.DEBUG) { Log.d(logTag, "Gradual alarm volume disabled"); }
             return;
         }
 
+        int minVolume;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             minVolume = audioManager.getStreamMinVolume(AudioManager.STREAM_ALARM);
         } else {
             minVolume = 0;
         }
 
-        volumeRange = originalVolume - minVolume;
-        currentVolume = minVolume;
+        int volumeRange = originalVolume - minVolume;
 
         audioManager.setStreamVolume(AudioManager.STREAM_ALARM, minVolume, 0);
 
-        triggerMillis = System.currentTimeMillis();
+        long triggerMillis = System.currentTimeMillis();
         Handler handler = new Handler();
         Runnable runnable = new Runnable() {
+            int currentVolume = minVolume;
             @Override
             public void run() {
                 if(BuildConfig.DEBUG) { Log.d(logTag, "Increase volume loop"); }
