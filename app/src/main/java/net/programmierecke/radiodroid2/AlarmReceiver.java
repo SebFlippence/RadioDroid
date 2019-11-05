@@ -240,7 +240,7 @@ public class AlarmReceiver extends BroadcastReceiver {
         String logTag = TAG + " AlarmVolume";
 
         SharedPreferences sharedPref = PreferenceManager.getDefaultSharedPreferences(context);
-        slowWakeMillis = Integer.parseInt(sharedPref.getString("gradually_increase_volume", "0"));
+        int slowWakeMillis = sharedPref.getInt("gradually_increase_volume", 0) * 10000;
 
         audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
         originalVolume = audioManager.getStreamVolume(AudioManager.STREAM_ALARM);
@@ -314,7 +314,6 @@ public class AlarmReceiver extends BroadcastReceiver {
 
         graduallyIncreaseAlarmVolume(context, false);
 
-        //Define sound URI
         Uri soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
 
         // Create the NotificationChannel, but only on API 26+ because
@@ -338,7 +337,6 @@ public class AlarmReceiver extends BroadcastReceiver {
             notificationManager.createNotificationChannel(channel);
         }
 
-        //Define Notification Manager
         NotificationManager notificationManager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
 
         NotificationCompat.Builder mBuilder = new NotificationCompat.Builder(context, BACKUP_NOTIFICATION_NAME)
@@ -349,7 +347,6 @@ public class AlarmReceiver extends BroadcastReceiver {
                 .setSound(soundUri)
                 .setAutoCancel(true);
 
-        //Display notification
         notificationManager.notify(1, mBuilder.build());
     }
 }
