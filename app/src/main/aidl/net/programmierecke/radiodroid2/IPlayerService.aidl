@@ -12,6 +12,7 @@ void Resume();
 void Stop();
 void SkipToNext();
 void SkipToPrevious();
+void SetVolume(float volume);
 void addTimer(int secondsAdd);
 void clearTimer();
 long getTimerSeconds();
