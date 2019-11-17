@@ -29,6 +29,7 @@ int getMetadataSampleRate();
 int getMetadataChannels();
 MediaSessionCompat.Token getMediaSessionToken();
 boolean isPlaying();
+boolean hasPlaybackStarted();
 void startRecording();
 void stopRecording();
 boolean isRecording();

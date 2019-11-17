@@ -245,6 +245,11 @@ public class PlayerService extends Service implements RadioPlayer.PlayerListener
         }
 
         @Override
+        public boolean hasPlaybackStarted() {
+            return radioPlayer.getPlayState() == RadioPlayer.PlayState.Playing;
+        }
+
+        @Override
         public void startRecording() throws RemoteException {
             if (radioPlayer != null) {
                 RadioDroidApp radioDroidApp = (RadioDroidApp) getApplication();
